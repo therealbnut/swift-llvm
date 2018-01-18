@@ -243,6 +243,8 @@ ErrorOr<WasmYAML::Object *> WasmDumper::dump() {
       break;
     }
     case wasm::WASM_SEC_DATA: {
+      if (Obj.isSectionWasmDataSegment(Sec))
+        continue;
       auto DataSec = make_unique<WasmYAML::DataSection>();
       for (const object::WasmSegment &Segment : Obj.dataSegments()) {
         WasmYAML::DataSegment Seg;

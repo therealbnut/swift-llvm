@@ -145,6 +145,8 @@ void WasmDumper::printSymbols() {
 void WasmDumper::printSections() {
   ListScope Group(W, "Sections");
   for (const SectionRef &Section : Obj->sections()) {
+    if (Obj->isSectionWasmDataSegment(Section))
+      continue;    
     const WasmSection &WasmSec = Obj->getWasmSection(Section);
     DictScope SectionD(W, "Section");
     W.printEnum("Type", WasmSec.Type, makeArrayRef(WasmSectionTypes));

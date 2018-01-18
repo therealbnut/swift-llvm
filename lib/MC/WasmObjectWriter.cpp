@@ -280,6 +280,12 @@ private:
   void writeNameSection(ArrayRef<WasmFunction> Functions,
                         ArrayRef<WasmImport> Imports,
                         uint32_t NumFuncImports);
+
+  void writeAlignedDataSegment(SectionBookkeeping &Section, const WasmDataSegment & Segment);
+  void writeDataSegment(SectionBookkeeping &Section, const WasmDataSegment & Segment, 
+                        unsigned MemIndexPadTo = 0, unsigned OffsetPadTo = 0, 
+                        unsigned SizePadTo = 0);
+
   void writeCodeRelocSection();
   void writeDataRelocSection();
   void writeLinkingMetaDataSection(
@@ -354,6 +360,111 @@ void WasmObjectWriter::executePostLayoutBinding(MCAssembler &Asm,
                                                 const MCAsmLayout &Layout) {
 }
 
+static void dumpMCExpr(const MCExpr *expr, std::string &prefix) {
+
+  std::string newprefix;
+  raw_string_ostream stream(newprefix);
+
+  stream << prefix << "\t";
+  llvm::dbgs() << prefix << "dumpMCExpr: ";
+  switch(expr->getKind()) {
+    case MCExpr::Binary: {
+      const MCBinaryExpr *binaryExpr = cast<MCBinaryExpr>(expr);
+      llvm::dbgs() << prefix << "Binary: opCode: ";
+      switch(binaryExpr->getOpcode()) {
+        case MCBinaryExpr::Add: llvm::dbgs() << "Add"; break;
+        case MCBinaryExpr::And: llvm::dbgs() << "And"; break;
+        case MCBinaryExpr::Div: llvm::dbgs() << "Div"; break;
+        case MCBinaryExpr::EQ: llvm::dbgs() << "EQ"; break;
+        case MCBinaryExpr::GT: llvm::dbgs() << "GT"; break;
+        case MCBinaryExpr::GTE: llvm::dbgs() << "GTE"; break;
+        case MCBinaryExpr::LAnd: llvm::dbgs() << "LAnd"; break;
+        case MCBinaryExpr::LOr: llvm::dbgs() << "LOr"; break;
+        case MCBinaryExpr::LT: llvm::dbgs() << "LT"; break;
+        case MCBinaryExpr::LTE: llvm::dbgs() << "LTE"; break;
+        case MCBinaryExpr::Mod: llvm::dbgs() << "Mod"; break;
+        case MCBinaryExpr::Mul: llvm::dbgs() << "Mul"; break;
+        case MCBinaryExpr::NE: llvm::dbgs() << "NE"; break;
+        case MCBinaryExpr::Or: llvm::dbgs() << "Or"; break;
+        case MCBinaryExpr::Shl: llvm::dbgs() << "Shl"; break;
+        case MCBinaryExpr::AShr: llvm::dbgs() << "AShr"; break;
+        case MCBinaryExpr::LShr: llvm::dbgs() << "LShr"; break;
+        case MCBinaryExpr::Sub: llvm::dbgs() << "Sub"; break;
+        case MCBinaryExpr::Xor: llvm::dbgs() << "Xor"; break;        
+      } 
+      llvm::dbgs() << "\n";
+
+      llvm::dbgs() << prefix << "LHS\n";
+      dumpMCExpr(binaryExpr->getLHS(), stream.str());
+      llvm::dbgs() << prefix << "RHS\n";
+      dumpMCExpr(binaryExpr->getRHS(), stream.str());
+      break;
+    }
+    case MCExpr::Constant: {
+      const MCConstantExpr *constantExpr = cast<MCConstantExpr>(expr);
+      llvm::dbgs() << prefix << "Constant: " << constantExpr->getValue();
+      break;
+    }
+    case MCExpr::SymbolRef: {
+      const MCSymbolRefExpr *symbolExpr = cast<MCSymbolRefExpr>(expr);
+      llvm::dbgs() << prefix << "Symbol: " << symbolExpr->getSymbol().getName();
+      break;
+    }
+    default:
+      llvm::dbgs() << prefix << "Kind: " << expr->getKind();
+  }
+  llvm::dbgs() <<  "\n";
+}
+
+static void dumpMCExpr(const MCExpr *expr) {
+  std::string prefix;
+  return dumpMCExpr(expr, prefix);
+}
+
+static void dumpMCSymbol(const MCSymbolWasm& Symbol) {
+  if (! Symbol.getName().empty()) {
+    llvm::dbgs() << Symbol.getName() << " :";
+  }
+  if (Symbol.isCommon()) {
+    llvm::dbgs() << " isCommon: true";
+  }
+  if (Symbol.isExternal()) {
+    llvm::dbgs() << " isExternal: true";
+  }
+  if (Symbol.isInSection()) {
+    llvm::dbgs() << " isInSection: true";
+  }
+  if (Symbol.isAbsolute()) {
+    llvm::dbgs() << " isAbsolute: true";
+  }
+  if (Symbol.isRegistered()) {  
+    llvm::dbgs() << " isRegistered: true";
+  }
+  if (Symbol.isUsedInReloc()) {
+    llvm::dbgs() << " isUsedInReloc: true";
+  }
+  if (Symbol.isTemporary()) {
+    llvm::dbgs() << " isTemporary: true";
+  }
+  if (Symbol.isUsed()) {
+    llvm::dbgs() << " isUsed: true";
+  }
+  if (Symbol.isRedefinable()) {
+    llvm::dbgs() << " isRedefinable: true";
+  }
+  if (Symbol.isVariable()) {
+    llvm::dbgs() << " isVariable: true";
+  }
+  llvm::dbgs() << "\n";
+  if (Symbol.isVariable()) {
+    const MCExpr *Expr = Symbol.getVariableValue();
+    std::string prefix = "\t";
+
+    dumpMCExpr(Expr, prefix);
+  }
+}
+
+
 void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
                                         const MCAsmLayout &Layout,
                                         const MCFragment *Fragment,
@@ -410,6 +521,23 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
     uint64_t K = SymBOffset - FixupOffset;
     IsPCRel = true;
     C -= K;
+
+
+    {
+      dbgs() << "-- begin --\n";
+      dbgs() << "Target.isAbsolute: " << Target.isAbsolute() << "\n";
+      dbgs() << "Fixup.getKind(): " << Fixup.getKind() << "\n";
+      dbgs() << "Fixup.getValue(): \n";
+      const MCExpr *Expr = Fixup.getValue();
+      dumpMCExpr(Expr);
+      dbgs() << "FixupSection.getSectionName(): " << FixupSection.getSectionName() << "\n";
+      dbgs() << "Target.getConstant: " << C << "\n";
+      dbgs() << "Target.getSymB:\n";
+      dumpMCSymbol(SymB);
+      dbgs() << "SymBOffset: " << SymBOffset << "\n";
+      dbgs() << "FixupOffset: " << FixupOffset << "\n";
+      dbgs() << "-- end --\n";
+    }
   }
 
   // We either rejected the fixup or folded B into C at this point.
@@ -418,9 +546,15 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
 
   if (SymA && SymA->isVariable()) {
     const MCExpr *Expr = SymA->getVariableValue();
-    const auto *Inner = cast<MCSymbolRefExpr>(Expr);
-    if (Inner->getKind() == MCSymbolRefExpr::VK_WEAKREF)
-      llvm_unreachable("weakref used in reloc not yet implemented");
+    if (Expr->getKind() == MCExpr::SymbolRef) {
+      const auto *Inner = cast<MCSymbolRefExpr>(Expr);
+      if (Inner->getKind() == MCSymbolRefExpr::VK_WEAKREF)
+        llvm_unreachable("weakref used in reloc not yet implemented");
+    } else {
+      dumpMCExpr(Expr);
+      llvm_unreachable("not yet implemented");
+    }
+
   }
 
   // Put any constant offset in an addend. Offsets can be negative, and
@@ -478,8 +612,13 @@ static void WriteI32(raw_pwrite_stream &Stream, uint32_t X, uint64_t Offset) {
 static const MCSymbolWasm* ResolveSymbol(const MCSymbolWasm& Symbol) {
   if (Symbol.isVariable()) {
     const MCExpr *Expr = Symbol.getVariableValue();
-    auto *Inner = cast<MCSymbolRefExpr>(Expr);
-    return cast<MCSymbolWasm>(&Inner->getSymbol());
+    if (Expr->getKind() == MCExpr::SymbolRef) {
+      auto *Inner = cast<MCSymbolRefExpr>(Expr);
+      return cast<MCSymbolWasm>(&Inner->getSymbol());
+    } else {
+      dumpMCExpr(Expr);
+      llvm_unreachable("Not yet implemented");
+    }
   }
   return &Symbol;
 }
@@ -828,13 +967,13 @@ void WasmObjectWriter::writeDataSection(ArrayRef<WasmDataSegment> Segments) {
   encodeULEB128(Segments.size(), getStream()); // count
 
   for (const WasmDataSegment & Segment : Segments) {
-    encodeULEB128(0, getStream()); // memory index
-    write8(wasm::WASM_OPCODE_I32_CONST);
-    encodeSLEB128(Segment.Offset, getStream()); // offset
-    write8(wasm::WASM_OPCODE_END);
-    encodeULEB128(Segment.Data.size(), getStream()); // size
-    Segment.Section->setSectionOffset(getStream().tell() - Section.ContentsOffset);
-    writeBytes(Segment.Data); // data
+
+    // although WASM format is not supposed to designed to be mapped into memory
+    // some certain sections are expected to aligned. 
+    if (Segment.Name == "__clangast")
+      writeAlignedDataSegment(Section, Segment);
+    else
+      writeDataSegment(Section, Segment);
   }
 
   // Apply fixups.
@@ -873,6 +1012,55 @@ void WasmObjectWriter::writeNameSection(
 
   endSection(SubSection);
   endSection(Section);
+}
+
+void WasmObjectWriter::writeAlignedDataSegment(SectionBookkeeping &Section,
+                                               const WasmDataSegment &Segment) {
+  // alignment is done by padding extra 0 in the ULEB encoded integers
+  // namely memoryIndex, offset and size
+
+  // ULEB128 encoding is limited to 10 bytes.
+#define MAX_PAD_TO (10)  // 64-bit integer is encoded as 10 7-bit elements
+
+  raw_null_ostream NullStream;
+  unsigned MemIndexLen = encodeULEB128(0, NullStream);
+  unsigned OffsetLen = encodeSLEB128(Segment.Offset, NullStream);
+  unsigned SizeLen = encodeULEB128(Segment.Data.size(), NullStream);
+
+  // 2 = the 2-bytes for WASM_OPCODE_I32_CONST and WASM_OPCODE_END
+  uint64_t SegmentStart =
+      (getStream().tell() + MemIndexLen + OffsetLen + SizeLen + 2);
+  uint64_t RemainingPadding =
+      OffsetToAlignment(SegmentStart, Segment.Alignment);
+
+  // now divide Padding between MemIndex, Offset and Size
+  unsigned MemIndexPadTo = MemIndexLen + RemainingPadding;
+  if (MemIndexPadTo > MAX_PAD_TO) MemIndexPadTo = MAX_PAD_TO;
+  RemainingPadding = RemainingPadding - (MemIndexPadTo - MemIndexLen);
+  unsigned OffsetPadTo = OffsetLen + RemainingPadding;
+  if (OffsetPadTo > MAX_PAD_TO) OffsetPadTo = MAX_PAD_TO;
+  RemainingPadding = RemainingPadding - (OffsetPadTo - OffsetLen);
+  unsigned SizePadTo = SizeLen + RemainingPadding;
+  assert(SizePadTo < MAX_PAD_TO && "Unable to align data segment");
+
+  writeDataSegment(Section, Segment, MemIndexPadTo, OffsetPadTo, SizePadTo);
+}
+
+void WasmObjectWriter::writeDataSegment(SectionBookkeeping &Section,
+                                        const WasmDataSegment &Segment,
+                                        unsigned MemIndexPadTo,
+                                        unsigned OffsetPadTo,
+                                        unsigned SizePadTo) {
+  encodeULEB128(0, getStream(), MemIndexPadTo);  // memory index
+  write8(wasm::WASM_OPCODE_I32_CONST);
+  encodeSLEB128(Segment.Offset, getStream(), OffsetPadTo);  // offset
+  write8(wasm::WASM_OPCODE_END);
+
+  encodeULEB128(Segment.Data.size(), getStream(), SizePadTo);  // size
+
+  Segment.Section->setSectionOffset(getStream().tell() -
+                                    Section.ContentsOffset);
+  writeBytes(Segment.Data);  // data
 }
 
 void WasmObjectWriter::writeCodeRelocSection() {

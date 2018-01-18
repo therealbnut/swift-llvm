@@ -906,7 +906,14 @@ WasmObjectFile::getSymbolSection(DataRefImpl Symb) const {
   return section_iterator(SectionRef(Ref, this));
 }
 
-void WasmObjectFile::moveSectionNext(DataRefImpl &Sec) const { Sec.d.a++; }
+void WasmObjectFile::moveSectionNext(DataRefImpl &Sec) const { 
+  if (isSectionData(Sec) && (Sec.d.b < DataSegments.size())) {
+    Sec.d.b++;
+  } else {    
+    Sec.d.a++;
+    Sec.d.b = 0;
+  }
+}
 
 std::error_code WasmObjectFile::getSectionName(DataRefImpl Sec,
                                                StringRef &Res) const {
@@ -926,7 +933,13 @@ std::error_code WasmObjectFile::getSectionName(DataRefImpl Sec,
     ECase(START);
     ECase(ELEM);
     ECase(CODE);
-    ECase(DATA);
+  case wasm::WASM_SEC_DATA: {
+    if (isSectionWasmDataSegment(Sec))
+      Res = getSectionWasmDataSegment(Sec).Name;
+    else 
+      Res = "DATA";    
+    break;
+  }
   case wasm::WASM_SEC_CUSTOM:
     Res = S.Name;
     break;
@@ -944,22 +957,46 @@ uint64_t WasmObjectFile::getSectionIndex(DataRefImpl Sec) const {
 }
 
 uint64_t WasmObjectFile::getSectionSize(DataRefImpl Sec) const {
-  const WasmSection &S = Sections[Sec.d.a];
-  return S.Content.size();
+  StringRef Res;
+  getSectionContents(Sec, Res);
+  return Res.size();
 }
 
 std::error_code WasmObjectFile::getSectionContents(DataRefImpl Sec,
                                                    StringRef &Res) const {
-  const WasmSection &S = Sections[Sec.d.a];
+  const auto &Content = isSectionWasmDataSegment(Sec) 
+                            ? getSectionWasmDataSegment(Sec).Content 
+                            : getWasmSection(Sec).Content;
+
   // This will never fail since wasm sections can never be empty (user-sections
   // must have a name and non-user sections each have a defined structure).
-  Res = StringRef(reinterpret_cast<const char *>(S.Content.data()),
-                  S.Content.size());
+  Res = StringRef(reinterpret_cast<const char *>(Content.data()),
+                  Content.size());
   return std::error_code();
 }
 
 uint64_t WasmObjectFile::getSectionAlignment(DataRefImpl Sec) const {
-  return 1;
+  if (isSectionData(Sec)) {
+    const wasm::WasmDataSegment &Data = getSectionWasmDataSegment(Sec);
+    return Data.Alignment;
+  }
+
+  return 1;  
+}
+
+bool WasmObjectFile::isSectionWasmDataSegment(DataRefImpl Sec) const {
+  return isSectionData(Sec) && Sec.d.b != 0;
+}
+
+bool WasmObjectFile::isSectionWasmDataSegment(const SectionRef &Section) const {
+  return isSectionWasmDataSegment(Section.getRawDataRefImpl());
+}
+
+const wasm::WasmDataSegment &WasmObjectFile::getSectionWasmDataSegment(DataRefImpl Sec) const {
+  assert(isSectionData(Sec) && "Section should be Data");
+  assert(Sec.d.b > 0);
+  assert(Sec.d.b <= DataSegments.size());
+  return DataSegments[Sec.d.b-1].Data;
 }
 
 bool WasmObjectFile::isSectionCompressed(DataRefImpl Sec) const {
@@ -991,7 +1028,14 @@ relocation_iterator WasmObjectFile::section_rel_end(DataRefImpl Ref) const {
   const WasmSection &Sec = getWasmSection(Ref);
   DataRefImpl RelocRef;
   RelocRef.d.a = Ref.d.a;
-  RelocRef.d.b = Sec.Relocations.size();
+
+  // if Ref is pointing to a "Section" that proxy to a Data Segment, 
+  // don't expose the relocation table
+  if (isSectionWasmDataSegment(Ref))
+    RelocRef.d.b = 0;
+  else
+    RelocRef.d.b = Sec.Relocations.size();
+
   return relocation_iterator(RelocationRef(RelocRef, this));
 }
 
