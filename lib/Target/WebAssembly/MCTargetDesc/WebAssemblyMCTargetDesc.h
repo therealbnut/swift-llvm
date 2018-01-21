@@ -118,6 +118,10 @@ inline unsigned GetDefaultP2Align(unsigned Opcode) {
   case WebAssembly::ATOMIC_LOAD8_U_I64:
   case WebAssembly::STORE8_I32:
   case WebAssembly::STORE8_I64:
+  case WebAssembly::ATOMIC_STORE8_I32:
+  case WebAssembly::ATOMIC_STORE8_I64:
+  case WebAssembly::ATOMIC_RMW_CMPXCHG8_U_I32:
+  case WebAssembly::ATOMIC_RMW_CMPXCHG8_U_I64:
     return 0;
   case WebAssembly::LOAD16_S_I32:
   case WebAssembly::LOAD16_U_I32:
@@ -127,6 +131,10 @@ inline unsigned GetDefaultP2Align(unsigned Opcode) {
   case WebAssembly::ATOMIC_LOAD16_U_I64:
   case WebAssembly::STORE16_I32:
   case WebAssembly::STORE16_I64:
+  case WebAssembly::ATOMIC_STORE16_I32:
+  case WebAssembly::ATOMIC_STORE16_I64:
+  case WebAssembly::ATOMIC_RMW_CMPXCHG16_U_I32:
+  case WebAssembly::ATOMIC_RMW_CMPXCHG16_U_I64:
     return 1;
   case WebAssembly::LOAD_I32:
   case WebAssembly::LOAD_F32:
@@ -137,12 +145,19 @@ inline unsigned GetDefaultP2Align(unsigned Opcode) {
   case WebAssembly::STORE32_I64:
   case WebAssembly::ATOMIC_LOAD_I32:
   case WebAssembly::ATOMIC_LOAD32_U_I64:
+  case WebAssembly::ATOMIC_STORE_I32:  
+  case WebAssembly::ATOMIC_STORE32_I64:
+  case WebAssembly::ATOMIC_RMW_CMPXCHG_I32:
+  case WebAssembly::ATOMIC_RMW_CMPXCHG32_U_I64:
+
     return 2;
   case WebAssembly::LOAD_I64:
   case WebAssembly::LOAD_F64:
   case WebAssembly::STORE_I64:
   case WebAssembly::STORE_F64:
   case WebAssembly::ATOMIC_LOAD_I64:
+  case WebAssembly::ATOMIC_STORE_I64:
+  case WebAssembly::ATOMIC_RMW_CMPXCHG_I64:
     return 3;
   default:
     llvm_unreachable("Only loads and stores have p2align values");

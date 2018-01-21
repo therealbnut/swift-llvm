@@ -196,7 +196,123 @@ def : LoadPatExternSymOffOnly<i64, anyext_aload_16_64, ATOMIC_LOAD16_U_I64>;
 // Atomic stores
 //===----------------------------------------------------------------------===//
 
-// TODO: add atomic stores here...
+let Defs = [ARGUMENTS] in {
+
+class WebAssemblyAtomicStore<int Opcode, WebAssemblyRegClass rc, string Name> :
+  I<(outs),
+    (ins P2Align:$p2align, offset32_op:$off, I32:$addr, rc:$val),
+    [], !strconcat(Name, "\t${off}(${addr})${p2align}, $val"), Opcode>;
+
+def ATOMIC_STORE_I32 : WebAssemblyAtomicStore<0xfe17, I32, "i32.atomic.store">;
+def ATOMIC_STORE_I64 : WebAssemblyAtomicStore<0xfe18, I64, "i64.atomic.store">;
+
+def ATOMIC_STORE8_I32  : WebAssemblyAtomicStore<0xfe19, I32, "i32.atomic.store8">;
+def ATOMIC_STORE16_I32 : WebAssemblyAtomicStore<0xfe1A, I32, "i64.atomic.store16">;
+
+def ATOMIC_STORE8_I64  : WebAssemblyAtomicStore<0xfe1B, I64, "i64.atomic.store8">;
+def ATOMIC_STORE16_I64 : WebAssemblyAtomicStore<0xfe1C, I64, "i64.atomic.store16">;
+def ATOMIC_STORE32_I64 : WebAssemblyAtomicStore<0xfe1D, I64, "i64.atomic.store32">;
+
+} // Defs = [ARGUMENTS]
+
+
+multiclass StorePatAddr<WebAssemblyRegClass rc, PatFrag node, I inst> {
+  def : // _PatNoOffset
+    Pat<(node I32:$addr, rc:$val), (inst 0, 0, $addr, rc:$val)>;
+  
+  def  : // _PatRegPlusImmOff
+    Pat<(node (regPlusImm I32:$addr, imm:$off), rc:$val),
+        (inst 0, imm:$off, I32:$addr, rc:$val)>;
+
+  def : // _PatOrIsAddImmOff
+    Pat<(node (or_is_add I32:$addr, imm:$off), rc:$val),
+        (inst 0, imm:$off, I32:$addr, rc:$val)>;
+
+  def  : // _PatGlobalAddr
+    Pat<(node (regPlusGA I32:$addr, (WebAssemblywrapper tglobaladdr:$off)), rc:$val),
+        (inst 0, tglobaladdr:$off, I32:$addr, rc:$val)>;
+
+  def  : // _PatExternalSym
+    Pat<(node (add I32:$addr, (WebAssemblywrapper texternalsym:$off)), rc:$val),
+      (inst 0, texternalsym:$off, I32:$addr, rc:$val)>;
+
+  //Assertion failed: (isValueTypeByHwMode(true) && "The type set has multiple types for at least one HW mode"), fu
+   def : // _PatOffsetOnly
+     Pat<(node imm:$off, rc:$val), 
+         (inst 0, imm:$off, (CONST_I32 0), $val)>;
+
+  def : // _PatGlobalAddrOffOnly
+    Pat<(node (WebAssemblywrapper tglobaladdr:$off), rc:$val),
+        (inst 0, tglobaladdr:$off, (CONST_I32 0), rc:$val)>;
+
+  def : // _PatExternSymOffOnly
+    Pat<(node (WebAssemblywrapper texternalsym:$off), rc:$val),
+        (inst 0, texternalsym:$off, (CONST_I32 0), rc:$val)>;
+}
+
+let Predicates = [HasAtomics] in {
+
+defm : StorePatAddr<I32, atomic_store_32, ATOMIC_STORE_I32>;
+defm : StorePatAddr<I64, atomic_store_64, ATOMIC_STORE_I64>;
+
+} // Predicates = [HasAtomics]
+
+
+def trunc_astore : PatFrag<(ops node:$val, node:$addr),
+                           (atomic_store node:$val, node:$addr)> {
+  let IsStore = 1;
+  let IsTruncStore = 1;
+}
+def trunc_astorei8 : PatFrag<(ops node:$val, node:$addr),
+                               (atomic_store node:$val, node:$addr)> {
+  let IsStore = 1;
+  let MemoryVT = i8;
+}
+def trunc_astorei16 : PatFrag<(ops node:$val, node:$addr),
+                                (atomic_store node:$val, node:$addr)> {
+  let IsStore = 1;
+  let MemoryVT = i16;
+}
+def trunc_astorei32 : PatFrag<(ops node:$val, node:$addr),
+                                (atomic_store node:$val, node:$addr)> {
+  let IsStore = 1;
+  let MemoryVT = i32;
+}
+
+let Predicates = [HasAtomics] in {
+
+defm : StorePatAddr<I32, trunc_astorei8, ATOMIC_STORE8_I32>;
+defm : StorePatAddr<I32, trunc_astorei16, ATOMIC_STORE16_I32>;
+defm : StorePatAddr<I64, trunc_astorei8, ATOMIC_STORE8_I64>;
+defm : StorePatAddr<I64, trunc_astorei16, ATOMIC_STORE16_I64>;
+defm : StorePatAddr<I64, trunc_astorei32, ATOMIC_STORE32_I64>;
+
+} // Predicates = [HasAtomics]
+
+//possible type contradiction in the pattern below (use -print-records with llvm-tblgen to see all expanded records).
+
+// let Defs = [ARGUMENTS] in {
+// def ATOMIC_STORE8_I64  : I<(outs), (ins P2Align:$p2align, offset32_op:$off, I32:$addr,
+//                             I64:$val), [],
+//                    "i64.atomic.store8\t${off}(${addr})${p2align}, $val", 0xfe1B>;
+// def ATOMIC_STORE16_I64  : I<(outs), (ins P2Align:$p2align, offset32_op:$off, I32:$addr,
+//                             I64:$val), [],
+//                    "i64.atomic.store16\t${off}(${addr})${p2align}, $val", 0xfe1C>;
+// def ATOMIC_STORE32_I64  : I<(outs), (ins P2Align:$p2align, offset32_op:$off, I32:$addr,
+//                             I64:$val), [],
+//                    "i64.atomic.store32\t${off}(${addr})${p2align}, $val", 0xfe1D>;
+// } // Defs = [ARGUMENTS]
+
+// let Predicates = [HasAtomics] in {
+// // Select truncating stores with no constant offset.
+// def : Pat<(atomic_store_8 I32:$val, I32:$addr),
+//           (ATOMIC_STORE8_I64 0, 0, I32:$addr, I64:$val)>;
+// def : Pat<(atomic_store_16 I32:$val, I32:$addr),
+//           (ATOMIC_STORE16_I64 0, 0, I32:$addr, I64:$val)>;
+// def : Pat<(atomic_store_32 I64:$val, I32:$addr),
+//           (ATOMIC_STORE32_I64 0, 0, I32:$addr, I64:$val)>;
+
+// } // Predicates = [HasAtomics]
 
 //===----------------------------------------------------------------------===//
 // Low-level exclusive operations
@@ -212,3 +328,223 @@ def : LoadPatExternSymOffOnly<i64, anyext_aload_16_64, ATOMIC_LOAD16_U_I64>;
 
 // And clear exclusive.
 
+//===----------------------------------
+// Atomic cmpxchg for -O0
+//===----------------------------------
+
+let Defs = [ARGUMENTS] in {
+
+class WebAssemblyAtomicCmpXChg<int Opcode, WebAssemblyRegClass rc, string Name> :
+  I<(outs rc:$oldval), 
+    (ins P2Align:$p2align, offset32_op:$off, I32:$addr, rc:$cmpval, rc:$newval), 
+    [], 
+    !strconcat(Name, "\t$oldval, ${off}(${addr})${p2align}, $cmpval, $newval"), Opcode>;
+
+def ATOMIC_RMW_CMPXCHG_I32 : WebAssemblyAtomicCmpXChg<0xfe48, I32, "i32.atomic.rmw.cmpxchg">;
+def ATOMIC_RMW_CMPXCHG_I64 : WebAssemblyAtomicCmpXChg<0xfe49, I64, "i64.atomic.rmw.cmpxchg">;
+
+def ATOMIC_RMW_CMPXCHG8_U_I32  : WebAssemblyAtomicCmpXChg<0xfe4A, I32, "i32.atomic.rmw8_u.cmpxchg">;
+def ATOMIC_RMW_CMPXCHG16_U_I32 : WebAssemblyAtomicCmpXChg<0xfe4B, I32, "i32.atomic.rmw16_u.cmpxchg">;
+def ATOMIC_RMW_CMPXCHG8_U_I64  : WebAssemblyAtomicCmpXChg<0xfe4C, I64, "i64.atomic.rmw8_u.cmpxchg">;
+def ATOMIC_RMW_CMPXCHG16_U_I64 : WebAssemblyAtomicCmpXChg<0xfe4D, I64, "i64.atomic.rmw16_u.cmpxchg">;
+def ATOMIC_RMW_CMPXCHG32_U_I64 : WebAssemblyAtomicCmpXChg<0xfe4E, I64, "i64.atomic.rmw32_u.cmpxchg">;
+
+} // Defs = [ARGUMENTS]
+
+multiclass CmpXchgPatMemarg<ValueType ty, WebAssemblyRegClass rc, PatFrag node, I inst> {
+  def : // _PatNoOffset
+    Pat<(ty (node I32:$addr, rc:$cmpval, rc:$newval)), (inst 0, 0, $addr, rc:$cmpval, rc:$newval)>;
+  
+  def  : // _PatRegPlusImmOff
+    Pat<(ty (node (regPlusImm I32:$addr, imm:$off), rc:$cmpval, rc:$newval)),
+        (inst 0, imm:$off, I32:$addr, rc:$cmpval, rc:$newval)>;
+
+  def : // _PatOrIsAddImmOff
+    Pat<(ty (node (or_is_add I32:$addr, imm:$off), rc:$cmpval, rc:$newval)),
+        (inst 0, imm:$off, I32:$addr, rc:$cmpval, rc:$newval)>;
+
+  def  : // _PatGlobalAddr
+    Pat<(ty (node (regPlusGA I32:$addr, (WebAssemblywrapper tglobaladdr:$off)), rc:$cmpval, rc:$newval)),
+        (inst 0, tglobaladdr:$off, I32:$addr, rc:$cmpval, rc:$newval)>;
+
+  def  : // _PatExternalSym
+    Pat<(ty (node (add I32:$addr, (WebAssemblywrapper texternalsym:$off)), rc:$cmpval, rc:$newval)),
+      (inst 0, texternalsym:$off, I32:$addr, rc:$cmpval, rc:$newval)>;
+
+  //Assertion failed: (isValueTypeByHwMode(true) && "The type set has multiple types for at least one HW mode"), fu
+   def : // _PatOffsetOnly
+     Pat<(ty (node imm:$off, rc:$cmpval, rc:$newval)), 
+         (inst 0, imm:$off, (CONST_I32 0), rc:$cmpval, rc:$newval)>;
+
+  def : // _PatGlobalAddrOffOnly
+    Pat<(ty (node (WebAssemblywrapper tglobaladdr:$off), rc:$cmpval, rc:$newval)),
+        (inst 0, tglobaladdr:$off, (CONST_I32 0), rc:$cmpval, rc:$newval)>;
+
+  def : // _PatExternSymOffOnly
+    Pat<(ty (node (WebAssemblywrapper texternalsym:$off), rc:$cmpval, rc:$newval)),
+        (inst 0, texternalsym:$off, (CONST_I32 0), rc:$cmpval, rc:$newval)>;
+}
+
+let Predicates = [HasAtomics] in {
+defm : CmpXchgPatMemarg<i32, I32, atomic_cmp_swap_32, ATOMIC_RMW_CMPXCHG_I32>;
+defm : CmpXchgPatMemarg<i64, I64, atomic_cmp_swap_64, ATOMIC_RMW_CMPXCHG_I64>;
+
+} // Predicates = [HasAtomics]
+
+
+// AtomicLoadAdd
+let Defs = [ARGUMENTS] in {
+
+class WebAssemblyAtomicRmwOp<int Opcode, WebAssemblyRegClass rc, string Name> :
+  I<(outs rc:$val), 
+    (ins P2Align:$p2align, offset32_op:$off, I32:$addr, rc:$delta), 
+    [], 
+    !strconcat(Name, "\t$val, ${off}(${addr})${p2align}, $delta"), Opcode>;
+
+
+def ATOMIC_RMW_ADD_I32     : WebAssemblyAtomicRmwOp<0xfe1e, I32, "i32.atomic.rmw.add">;
+def ATOMIC_RMW_ADD_I64     : WebAssemblyAtomicRmwOp<0xfe1f, I64, "i64.atomic.rmw.add">;
+def ATOMIC_RMW8_U_ADD_I32  : WebAssemblyAtomicRmwOp<0xfe20, I32, "i32.atomic.rmw8_u.add">;
+def ATOMIC_RMW16_U_ADD_I32 : WebAssemblyAtomicRmwOp<0xfe21, I32, "i32.atomic.rmw16_u.add">;
+def ATOMIC_RMW8_U_ADD_I64  : WebAssemblyAtomicRmwOp<0xfe22, I64, "i64.atomic.rmw8_u.add">;
+def ATOMIC_RMW16_U_ADD_I64 : WebAssemblyAtomicRmwOp<0xfe23, I64, "i64.atomic.rmw16_u.add">;
+def ATOMIC_RMW32_U_ADD_I64 : WebAssemblyAtomicRmwOp<0xfe24, I64, "i64.atomic.rmw32_u.add">;
+
+} // Defs = [ARGUMENTS]
+
+let Predicates = [HasAtomics] in {
+
+multiclass LoadAddPatMemarg<ValueType ty, WebAssemblyRegClass rc, PatFrag node, I inst> {
+  def : // _PatNoOffset
+    Pat<(ty (node I32:$addr, rc:$delta)), (inst 0, 0, I32:$addr, rc:$delta)>;
+  
+  def  : // _PatRegPlusImmOff
+    Pat<(ty (node (regPlusImm I32:$addr, imm:$off), rc:$delta)),
+        (inst 0, imm:$off, I32:$addr, rc:$delta)>;
+
+  def : // _PatOrIsAddImmOff
+    Pat<(ty (node (or_is_add I32:$addr, imm:$off), rc:$delta)),
+        (inst 0, imm:$off, I32:$addr, rc:$delta)>;
+
+  def  : // _PatGlobalAddr
+    Pat<(ty (node (regPlusGA I32:$addr, (WebAssemblywrapper tglobaladdr:$off)), rc:$delta)),
+        (inst 0, tglobaladdr:$off, I32:$addr, rc:$delta)>;
+
+  def  : // _PatExternalSym
+    Pat<(ty (node (add I32:$addr, (WebAssemblywrapper texternalsym:$off)), rc:$delta)),
+      (inst 0, texternalsym:$off, I32:$addr, rc:$delta)>;
+
+  //Assertion failed: (isValueTypeByHwMode(true) && "The type set has multiple types for at least one HW mode"), fu
+   def : // _PatOffsetOnly
+     Pat<(ty (node imm:$off, rc:$delta)), 
+         (inst 0, imm:$off, (CONST_I32 0), rc:$delta)>;
+
+  def : // _PatGlobalAddrOffOnly
+    Pat<(ty (node (WebAssemblywrapper tglobaladdr:$off), rc:$delta)),
+        (inst 0, tglobaladdr:$off, (CONST_I32 0), rc:$delta)>;
+
+  def : // _PatExternSymOffOnly
+    Pat<(ty (node (WebAssemblywrapper texternalsym:$off), rc:$delta)),
+        (inst 0, texternalsym:$off, (CONST_I32 0), rc:$delta)>;
+}
+
+defm : LoadAddPatMemarg<i32, I32, atomic_load_add_32, ATOMIC_RMW_ADD_I32>;
+defm : LoadAddPatMemarg<i64, I64, atomic_load_add_64, ATOMIC_RMW_ADD_I64>; 
+
+} // Predicates = [HasAtomics]
+
+
+// AtomicLoadAdd
+let Defs = [ARGUMENTS] in {
+
+def ATOMIC_RMW_AND_I32     : WebAssemblyAtomicRmwOp<0xfe2c, I32, "i32.atomic.rmw.and">;
+def ATOMIC_RMW_AND_I64     : WebAssemblyAtomicRmwOp<0xfe2d, I64, "i64.atomic.rmw.and">;
+def ATOMIC_RMW8_U_AND_I32  : WebAssemblyAtomicRmwOp<0xfe2e, I32, "i32.atomic.rmw8_u.and">;
+def ATOMIC_RMW16_U_AND_I32 : WebAssemblyAtomicRmwOp<0xfe2f, I32, "i32.atomic.rmw16_u.and">;
+def ATOMIC_RMW8_U_AND_I64  : WebAssemblyAtomicRmwOp<0xfe30, I64, "i64.atomic.rmw8_u.and">;
+def ATOMIC_RMW16_U_AND_I64 : WebAssemblyAtomicRmwOp<0xfe31, I64, "i64.atomic.rmw16_u.and">;
+def ATOMIC_RMW32_U_AND_I64 : WebAssemblyAtomicRmwOp<0xfe32, I64, "i64.atomic.rmw32_u.and">;
+
+} // Defs = [ARGUMENTS]
+
+let Predicates = [HasAtomics] in {
+
+defm : LoadAddPatMemarg<i32, I32, atomic_load_and_32, ATOMIC_RMW_AND_I32>;
+defm : LoadAddPatMemarg<i64, I64, atomic_load_and_64, ATOMIC_RMW_AND_I64>; 
+
+} // Predicates = [HasAtomics]
+
+// AtomicLoadAdd
+let Defs = [ARGUMENTS] in {
+
+def ATOMIC_RMW_OR_I32     : WebAssemblyAtomicRmwOp<0xfe33, I32, "i32.atomic.rmw.or">;
+def ATOMIC_RMW_OR_I64     : WebAssemblyAtomicRmwOp<0xfe34, I64, "i64.atomic.rmw.or">;
+def ATOMIC_RMW8_U_OR_I32  : WebAssemblyAtomicRmwOp<0xfe35, I32, "i32.atomic.rmw8_u.or">;
+def ATOMIC_RMW16_U_OR_I32 : WebAssemblyAtomicRmwOp<0xfe36, I32, "i32.atomic.rmw16_u.or">;
+def ATOMIC_RMW8_U_OR_I64  : WebAssemblyAtomicRmwOp<0xfe37, I64, "i64.atomic.rmw8_u.or">;
+def ATOMIC_RMW16_U_OR_I64 : WebAssemblyAtomicRmwOp<0xfe38, I64, "i64.atomic.rmw16_u.or">;
+def ATOMIC_RMW32_U_OR_I64 : WebAssemblyAtomicRmwOp<0xfe39, I64, "i64.atomic.rmw32_u.or">;
+
+} // Defs = [ARGUMENTS]
+
+let Predicates = [HasAtomics] in {
+defm : LoadAddPatMemarg<i32, I32, atomic_load_or_32, ATOMIC_RMW_OR_I32>;
+defm : LoadAddPatMemarg<i64, I64, atomic_load_or_64, ATOMIC_RMW_OR_I64>; 
+
+defm : LoadAddPatMemarg<i32, I32, atomic_load_or_8,  ATOMIC_RMW8_U_OR_I32>;
+defm : LoadAddPatMemarg<i32, I32, atomic_load_or_16, ATOMIC_RMW16_U_OR_I32>;
+defm : LoadAddPatMemarg<i64, I64, atomic_load_or_8,  ATOMIC_RMW8_U_OR_I64>; 
+defm : LoadAddPatMemarg<i64, I64, atomic_load_or_16, ATOMIC_RMW16_U_OR_I64>; 
+defm : LoadAddPatMemarg<i64, I64, atomic_load_or_32, ATOMIC_RMW32_U_OR_I64>; 
+
+} // Predicates = [HasAtomics]
+
+// AtomicLoadAdd
+let Defs = [ARGUMENTS] in {
+
+def ATOMIC_RMW_XOR_I32     : WebAssemblyAtomicRmwOp<0xfe3a, I32, "i32.atomic.rmw.xor">;
+def ATOMIC_RMW_XOR_I64     : WebAssemblyAtomicRmwOp<0xfe3b, I64, "i64.atomic.rmw.xor">;
+def ATOMIC_RMW8_U_XOR_I32  : WebAssemblyAtomicRmwOp<0xfe3c, I32, "i32.atomic.rmw8_u.xor">;
+def ATOMIC_RMW16_U_XOR_I32 : WebAssemblyAtomicRmwOp<0xfe3d, I32, "i32.atomic.rmw16_u.xor">;
+def ATOMIC_RMW8_U_XOR_I64  : WebAssemblyAtomicRmwOp<0xfe3e, I64, "i64.atomic.rmw8_u.xor">;
+def ATOMIC_RMW16_U_XOR_I64 : WebAssemblyAtomicRmwOp<0xfe3f, I64, "i64.atomic.rmw16_u.xor">;
+def ATOMIC_RMW32_U_XOR_I64 : WebAssemblyAtomicRmwOp<0xfe40, I64, "i64.atomic.rmw32_u.xor">;
+
+} // Defs = [ARGUMENTS]
+
+let Predicates = [HasAtomics] in {
+defm : LoadAddPatMemarg<i32, I32, atomic_load_xor_32, ATOMIC_RMW_XOR_I32>;
+defm : LoadAddPatMemarg<i64, I64, atomic_load_xor_64, ATOMIC_RMW_XOR_I64>; 
+
+defm : LoadAddPatMemarg<i32, I32, atomic_load_xor_8,  ATOMIC_RMW8_U_XOR_I32>;
+defm : LoadAddPatMemarg<i32, I32, atomic_load_xor_16, ATOMIC_RMW16_U_XOR_I32>;
+defm : LoadAddPatMemarg<i64, I64, atomic_load_xor_8,  ATOMIC_RMW8_U_XOR_I64>; 
+defm : LoadAddPatMemarg<i64, I64, atomic_load_xor_16, ATOMIC_RMW16_U_XOR_I64>; 
+defm : LoadAddPatMemarg<i64, I64, atomic_load_xor_32, ATOMIC_RMW32_U_XOR_I64>; 
+
+} // Predicates = [HasAtomics]
+
+// AtomicLoadAdd
+let Defs = [ARGUMENTS] in {
+
+def ATOMIC_RMW_XCHG_I32     : WebAssemblyAtomicRmwOp<0xfe3a, I32, "i32.atomic.rmw.xchg">;
+def ATOMIC_RMW_XCHG_I64     : WebAssemblyAtomicRmwOp<0xfe3b, I64, "i64.atomic.rmw.xchg">;
+def ATOMIC_RMW8_U_XCHG_I32  : WebAssemblyAtomicRmwOp<0xfe3c, I32, "i32.atomic.rmw8_u.xchg">;
+def ATOMIC_RMW16_U_XCHG_I32 : WebAssemblyAtomicRmwOp<0xfe3d, I32, "i32.atomic.rmw16_u.xchg">;
+def ATOMIC_RMW8_U_XCHG_I64  : WebAssemblyAtomicRmwOp<0xfe3e, I64, "i64.atomic.rmw8_u.xchg">;
+def ATOMIC_RMW16_U_XCHG_I64 : WebAssemblyAtomicRmwOp<0xfe3f, I64, "i64.atomic.rmw16_u.xchg">;
+def ATOMIC_RMW32_U_XCHG_I64 : WebAssemblyAtomicRmwOp<0xfe40, I64, "i64.atomic.rmw32_u.xchg">;
+
+} // Defs = [ARGUMENTS]
+
+let Predicates = [HasAtomics] in {
+defm : LoadAddPatMemarg<i32, I32, atomic_swap_32, ATOMIC_RMW_XCHG_I32>;
+defm : LoadAddPatMemarg<i64, I64, atomic_swap_64, ATOMIC_RMW_XCHG_I64>; 
+
+defm : LoadAddPatMemarg<i32, I32, atomic_swap_8,  ATOMIC_RMW8_U_XCHG_I32>;
+defm : LoadAddPatMemarg<i32, I32, atomic_swap_16, ATOMIC_RMW16_U_XCHG_I32>;
+defm : LoadAddPatMemarg<i64, I64, atomic_swap_8,  ATOMIC_RMW8_U_XCHG_I64>; 
+defm : LoadAddPatMemarg<i64, I64, atomic_swap_16, ATOMIC_RMW16_U_XCHG_I64>; 
+defm : LoadAddPatMemarg<i64, I64, atomic_swap_32, ATOMIC_RMW32_U_XCHG_I64>; 
+
+} // Predicates = [HasAtomics]
