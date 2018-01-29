@@ -1,6 +1,7 @@
 set(LLVM_TARGET_DEFINITIONS WebAssembly.td)
 
 tablegen(LLVM WebAssemblyGenAsmWriter.inc -gen-asm-writer)
+tablegen(LLVM WebAssemblyGenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM WebAssemblyGenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM WebAssemblyGenFastISel.inc -gen-fast-isel)
 tablegen(LLVM WebAssemblyGenInstrInfo.inc -gen-instr-info)
@@ -51,6 +52,7 @@ add_llvm_target(WebAssemblyCodeGen
   intrinsics_gen
 )
 
+add_subdirectory(AsmParser)
 add_subdirectory(Disassembler)
 add_subdirectory(InstPrinter)
 add_subdirectory(MCTargetDesc)

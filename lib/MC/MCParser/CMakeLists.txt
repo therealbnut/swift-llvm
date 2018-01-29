@@ -8,7 +8,8 @@ add_llvm_library(LLVMMCParser
   MCAsmParser.cpp
   MCAsmParserExtension.cpp
   MCTargetAsmParser.cpp
-
+  WASMAsmParser.cpp
+  
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/MC/MCParser
   )
