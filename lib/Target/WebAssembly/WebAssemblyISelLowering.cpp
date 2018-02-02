@@ -451,6 +451,7 @@ static bool CallingConvSupported(CallingConv::ID CallConv) {
          CallConv == CallingConv::Cold ||
          CallConv == CallingConv::PreserveMost ||
          CallConv == CallingConv::PreserveAll ||
+         CallConv == CallingConv::Swift ||
          CallConv == CallingConv::CXX_FAST_TLS;
 }
 
