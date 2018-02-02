@@ -1067,7 +1067,7 @@ void WasmObjectWriter::writeCodeRelocSection() {
   // See: https://github.com/WebAssembly/tool-conventions/blob/master/Linking.md
   // for descriptions of the reloc sections.
 
-  if (CodeRelocations.empty())
+  if (CodeRelocations.empty()) 
     return;
 
   SectionBookkeeping Section;
@@ -1085,7 +1085,7 @@ void WasmObjectWriter::writeDataRelocSection() {
   // See: https://github.com/WebAssembly/tool-conventions/blob/master/Linking.md
   // for descriptions of the reloc sections.
 
-  if (DataRelocations.empty())
+  if (DataRelocations.empty()) 
     return;
 
   SectionBookkeeping Section;
